@@ -65,6 +65,7 @@
         <div class="text-center mt-2">
           <p class="text-sm font-semibold">کد حضار: <span id="audienceCode" class="font-bold text-lg"></span></p>
           <p class="text-sm font-semibold">کد مدیر: <span id="moderatorCode" class="font-bold text-lg"></span></p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="modUserId" class="font-bold text-sm"></span></p>
         </div>
       </div>
       
@@ -80,6 +81,7 @@
         <h1 class="text-xl font-bold text-center" id="audEventName"></h1>
         <div class="text-center mt-2">
           <p class="text-sm font-semibold">برای پرسیدن سؤالات خود از این صفحه استفاده کنید.</p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="audUserId" class="font-bold text-sm"></span></p>
         </div>
       </div>
       
@@ -111,20 +113,17 @@
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 
-    // This is the Firebase config object. Replace this with your own project's config.
-    const firebaseConfig = {
-      // Your Firebase config goes here.
-      // Example:
-      // apiKey: "...",
-      // authDomain: "...",
-      // projectId: "...",
-      // storageBucket: "...",
-      // messagingSenderId: "...",
-      // appId: "..."
-    };
+    // Set Firestore log level for debugging
+    setLogLevel('debug');
+
+    // Global variables from the Canvas environment
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
     let app;
     let db;
@@ -142,6 +141,8 @@
       joinEventBtn: document.getElementById('joinEventBtn'),
       createEventBtn: document.getElementById('createEventBtn'),
       modEventName: document.getElementById('modEventName'),
+      modUserId: document.getElementById('modUserId'),
+      audUserId: document.getElementById('audUserId'),
       audienceCode: document.getElementById('audienceCode'),
       moderatorCode: document.getElementById('moderatorCode'),
       questionsList: document.getElementById('questions-list'),
@@ -173,15 +174,29 @@
       db = getFirestore(app);
       auth = getAuth(app);
 
-      // Sign in anonymously and handle the user state
-      signInAnonymously(auth).then(userCredential => {
-          userId = userCredential.user.uid;
-      }).catch(error => {
-          console.error("Error signing in anonymously: ", error);
-          showModal("خطا در ورود ناشناس به برنامه. لطفاً دوباره امتحان کنید.");
+      // Handle user authentication
+      onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          userId = user.uid;
+          elements.modUserId.textContent = userId;
+          elements.audUserId.textContent = userId;
+        } else {
+          // If no user is signed in, try to sign in with the custom token or anonymously
+          try {
+            if (initialAuthToken) {
+              await signInWithCustomToken(auth, initialAuthToken);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (error) {
+            console.error("Error signing in:", error);
+            showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
+          }
+        }
       });
     } else {
       console.error("Firebase config is missing. App will not function correctly.");
+      showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
     }
     
     // Function to navigate between pages
@@ -204,7 +219,7 @@
       const moderatorCode = generateCode();
       
       try {
-        const eventsColRef = collection(db, `/artifacts/default-app-id/public/data/events`);
+        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
         
         await setDoc(doc(eventsColRef, audienceCode), {
           audienceCode: audienceCode,
@@ -221,7 +236,7 @@
         });
 
         // Redirect to moderator page
-        enterEvent(moderatorCode, 'moderator');
+        enterEvent(moderatorCode);
         
       } catch (error) {
         console.error("Error creating event: ", error);
@@ -231,7 +246,7 @@
     
     // Function to enter an event
     async function enterEvent(code) {
-      const eventDocRef = doc(db, `/artifacts/default-app-id/public/data/events/${code}`);
+      const eventDocRef = doc(db, `/artifacts/${appId}/public/data/events/${code}`);
       const eventDoc = await getDoc(eventDocRef);
       
       if (!eventDoc.exists()) {
@@ -247,7 +262,7 @@
         elements.modEventName.textContent = eventData.eventName;
         elements.audienceCode.textContent = eventData.audienceCode;
         elements.moderatorCode.textContent = eventData.moderatorCode;
-        currentEventRef = doc(db, `/artifacts/default-app-id/public/data/events/${eventData.audienceCode}`);
+        currentEventRef = doc(db, `/artifacts/${appId}/public/data/events/${eventData.audienceCode}`);
         setupModeratorListener(currentEventRef);
       } else if (eventData.audienceCode === currentEventCode) {
         showPage('audience-page');
@@ -366,6 +381,10 @@
     // Firestore Actions
     window.markAnswered = async (questionId, isAnswered) => {
       try {
+        if (!userId) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
         const questionRef = doc(currentEventRef, "questions", questionId);
         await updateDoc(questionRef, {
           answered: !isAnswered
@@ -377,6 +396,10 @@
     
     window.deleteQuestion = async (questionId) => {
       try {
+        if (!userId) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
         const questionRef = doc(currentEventRef, "questions", questionId);
         await updateDoc(questionRef, {
           deleted: true
@@ -388,6 +411,10 @@
     
     window.upvoteQuestion = async (questionId, currentVotes) => {
       try {
+        if (!userId) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
         const questionRef = doc(currentEventRef, "questions", questionId);
         await updateDoc(questionRef, {
           votes: currentVotes + 1
