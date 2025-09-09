@@ -118,11 +118,17 @@
     // Set Firestore log level for debugging
     setLogLevel('debug');
 
-    // Global variables from the Canvas environment
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
+    const appId = 'roidam-app';
+    const firebaseConfig = {
+      apiKey: "AIzaSyD9-oaPJ_XN8nDyF8qOlDVHNACLpjSt2to",
+      authDomain: "roidam-backend.firebaseapp.com",
+      projectId: "roidam-backend",
+      storageBucket: "roidam-backend.firebasestorage.app",
+      messagingSenderId: "762602792858",
+      appId: "1:762602792858:web:f4a266f83d05d2275dfc23",
+      measurementId: "G-H9M29J7NJN"
+    };
+    
     let app;
     let db;
     let auth;
