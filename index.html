@@ -132,7 +132,8 @@
     let app;
     let db;
     let auth;
-    let userId;
+    let userId = null;
+    let isAuthReady = false;
 
     let currentEventRef = null;
     let currentEventCode = null;
@@ -180,7 +181,7 @@
           db = getFirestore(app);
           auth = getAuth(app);
           
-          onAuthStateChanged(auth, (user) => {
+          onAuthStateChanged(auth, async (user) => {
             if (user) {
               userId = user.uid;
               elements.modUserId.textContent = userId;
@@ -189,17 +190,22 @@
             } else {
               // Sign in anonymously if not authenticated
               if (initialAuthToken) {
-                signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                try {
+                  await signInWithCustomToken(auth, initialAuthToken);
+                } catch (e) {
                   console.error("Error with custom token:", e);
                   showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
-                });
+                }
               } else {
-                signInAnonymously(auth).catch(e => {
+                try {
+                  await signInAnonymously(auth);
+                } catch (e) {
                   console.error("Error with anonymous sign-in:", e);
                   showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
-                });
+                }
               }
             }
+            isAuthReady = true;
           });
 
         } catch (error) {
@@ -228,7 +234,7 @@
     // Function to create a new event
     async function createEvent() {
       // Ensure user is authenticated before creating an event
-      if (!userId) {
+      if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
@@ -266,7 +272,7 @@
     
     // Function to enter an event
     async function enterEvent(code) {
-      if (!userId) {
+      if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
@@ -345,7 +351,7 @@
       
       questions.forEach(q => {
         const questionDiv = document.createElement('div');
-        questionDiv.className = `question-card flex items-start gap-4 ${q.answered ? 'opacity-50 line-through' : ''}`;
+        questionDiv.className = `question-card flex items-start gap-4 ${q.answered ? 'opacity-50' : ''}`;
         
         questionDiv.innerHTML = `
           <div class="flex-grow">
@@ -393,7 +399,7 @@
           <div class="flex-shrink-0 flex flex-col items-center gap-1">
             <button onclick="upvoteQuestion('${q.id}', ${q.votes})" class="vote-button bg-gray-200 text-gray-600 p-2 rounded-full hover:bg-green-500 hover:text-white transition-colors">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586l-1.293-1.293z" />
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7.293 8.707a1 1 0 011.414-1.414L10 8.586l1.293-1.293a1 1 0 111.414 1.414L11.414 10l1.293 1.293a1 1 0 01-1.414 1.414L10 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L8.586 10 7.293 8.707z" clip-rule="evenodd" />
               </svg>
             </button>
             <span class="text-lg font-bold text-green-600">${q.votes}</span>
@@ -406,7 +412,7 @@
     // Firestore Actions
     window.markAnswered = async (questionId, isAnswered) => {
       try {
-        if (!userId) {
+        if (!isAuthReady) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -421,7 +427,7 @@
     
     window.deleteQuestion = async (questionId) => {
       try {
-        if (!userId) {
+        if (!isAuthReady) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -436,7 +442,7 @@
     
     window.upvoteQuestion = async (questionId, currentVotes) => {
       try {
-        if (!userId) {
+        if (!isAuthReady) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -470,8 +476,8 @@
         return;
       }
       
-      if (!currentEventRef) {
-        showModal("خطا: کد رویداد نامعتبر است.");
+      if (!isAuthReady || !currentEventRef) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
       
