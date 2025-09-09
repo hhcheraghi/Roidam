@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>سیستم پرسش و پاسخ - رویدام</title>
+  <title>سیستم پرسش و پاسخ</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -89,4 +89,255 @@
         <div class="flex flex-col md:flex-row gap-3 w-full max-w-2xl mx-auto">
           <input type="text" id="askerNameInput" placeholder="نام (اختیاری)" class="flex-shrink-0 w-full md:w-auto p-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors">
           <input type="text" id="questionInput" placeholder="سؤال خود را اینجا بنویسید..." class="flex-grow w-full p-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors">
-          <button id="addQuestionBtn" class="flex-shrink-0 w-full md:w-auto bg-blue-500
+          <button id="addQuestionBtn" class="flex-shrink-0 w-full md:w-auto bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 transition-colors">ارسال</button>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+
+  <!-- Custom Alert/Modal -->
+  <div id="custom-modal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-lg p-6 w-full max-w-sm text-center shadow-xl">
+      <p id="modal-text" class="text-lg mb-4"></p>
+      <button id="modal-close-btn" class="bg-blue-500 text-white py-2 px-6 rounded-lg hover:bg-blue-600 transition-colors">بستن</button>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+
+    // 🔥 Firebase Config (یادآوری: اینو خودت بهم دادی)
+    const firebaseConfig = {
+      apiKey: "AIzaSyD9-oaPJ_XN8nDyF8qOlDVHNACLpjSt2to",
+      authDomain: "roidam-backend.firebaseapp.com",
+      projectId: "roidam-backend",
+      storageBucket: "roidam-backend.firebasestorage.app",
+      messagingSenderId: "762602792858",
+      appId: "1:762602792858:web:f4a266f83d05d2275dfc23",
+      measurementId: "G-H9M29J7NJN"
+    };
+
+    let app, db, auth, userId = null, isAuthReady = false;
+    let currentEventRef = null;
+    let currentEventCode = null;
+
+    const elements = {
+      homePage: document.getElementById('home-page'),
+      moderatorPage: document.getElementById('moderator-page'),
+      audiencePage: document.getElementById('audience-page'),
+      eventCodeInput: document.getElementById('eventCodeInput'),
+      joinEventBtn: document.getElementById('joinEventBtn'),
+      createEventBtn: document.getElementById('createEventBtn'),
+      modEventName: document.getElementById('modEventName'),
+      modUserId: document.getElementById('modUserId'),
+      audUserId: document.getElementById('audUserId'),
+      audienceCode: document.getElementById('audienceCode'),
+      moderatorCode: document.getElementById('moderatorCode'),
+      questionsList: document.getElementById('questions-list'),
+      audienceQuestionsList: document.getElementById('audience-questions-list'),
+      askerNameInput: document.getElementById('askerNameInput'),
+      questionInput: document.getElementById('questionInput'),
+      addQuestionBtn: document.getElementById('addQuestionBtn'),
+      noQuestionsMod: document.getElementById('noQuestionsMod'),
+      noQuestionsAud: document.getElementById('noQuestionsAud'),
+      modal: document.getElementById('custom-modal'),
+      modalText: document.getElementById('modal-text'),
+      modalCloseBtn: document.getElementById('modal-close-btn')
+    };
+
+    function showModal(message) {
+      elements.modalText.textContent = message;
+      elements.modal.classList.remove('hidden');
+    }
+    elements.modalCloseBtn.addEventListener('click', () => {
+      elements.modal.classList.add('hidden');
+    });
+
+    async function initializeFirebase() {
+      try {
+        app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+        onAuthStateChanged(auth, async (user) => {
+          if (user) {
+            userId = user.uid;
+            elements.modUserId.textContent = userId;
+            elements.audUserId.textContent = userId;
+          } else {
+            await signInAnonymously(auth);
+          }
+          isAuthReady = true;
+        });
+      } catch (error) {
+        console.error("Error initializing Firebase:", error);
+        showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
+      }
+    }
+
+    function showPage(pageId) {
+      elements.homePage.classList.add('hidden');
+      elements.moderatorPage.classList.add('hidden');
+      elements.audiencePage.classList.add('hidden');
+      document.getElementById(pageId).classList.remove('hidden');
+    }
+
+    function generateCode() {
+      return Math.floor(100 + Math.random() * 900).toString();
+    }
+
+    async function createEvent() {
+      if (!isAuthReady) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        return;
+      }
+      const eventName = "همایش جدید";
+      const audienceCode = generateCode();
+      const moderatorCode = generateCode();
+      try {
+        const eventsColRef = collection(db, "events");
+        await setDoc(doc(eventsColRef, audienceCode), {
+          audienceCode, moderatorCode, eventName, createdAt: Date.now()
+        });
+        await setDoc(doc(eventsColRef, moderatorCode), {
+          audienceCode, moderatorCode, eventName, createdAt: Date.now()
+        });
+        enterEvent(moderatorCode);
+      } catch (error) {
+        console.error("Error creating event: ", error);
+        showModal("خطا در ساخت رویداد. لطفاً دوباره تلاش کنید.");
+      }
+    }
+
+    async function enterEvent(code) {
+      if (!isAuthReady) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        return;
+      }
+      const eventDocRef = doc(db, "events", code);
+      const eventDoc = await getDoc(eventDocRef);
+      if (!eventDoc.exists()) {
+        showModal("کد وارد شده معتبر نیست.");
+        return;
+      }
+      const eventData = eventDoc.data();
+      currentEventCode = code;
+      if (eventData.moderatorCode === currentEventCode) {
+        showPage('moderator-page');
+        elements.modEventName.textContent = eventData.eventName;
+        elements.audienceCode.textContent = eventData.audienceCode;
+        elements.moderatorCode.textContent = eventData.moderatorCode;
+        currentEventRef = doc(db, "events", eventData.audienceCode);
+        setupModeratorListener(currentEventRef);
+      } else if (eventData.audienceCode === currentEventCode) {
+        showPage('audience-page');
+        elements.audEventName.textContent = eventData.eventName;
+        currentEventRef = eventDocRef;
+        setupAudienceListener(currentEventRef);
+      } else {
+        showModal("کد وارد شده صحیح نیست.");
+      }
+    }
+
+    function setupModeratorListener(eventRef) {
+      const questionsColRef = collection(eventRef, "questions");
+      const q = query(questionsColRef, where("deleted", "==", false));
+      onSnapshot(q, (snapshot) => {
+        const questions = [];
+        snapshot.forEach(doc => questions.push({ id: doc.id, ...doc.data() }));
+        questions.sort((a, b) => b.votes - a.votes);
+        renderModeratorQuestions(questions);
+      });
+    }
+
+    function setupAudienceListener(eventRef) {
+      const questionsColRef = collection(eventRef, "questions");
+      const q = query(questionsColRef, where("answered", "==", false), where("deleted", "==", false));
+      onSnapshot(q, (snapshot) => {
+        const questions = [];
+        snapshot.forEach(doc => questions.push({ id: doc.id, ...doc.data() }));
+        questions.sort((a, b) => b.votes - a.votes);
+        renderAudienceQuestions(questions);
+      });
+    }
+
+    function renderModeratorQuestions(questions) {
+      elements.questionsList.innerHTML = '';
+      elements.noQuestionsMod.classList.toggle('hidden', questions.length !== 0);
+      questions.forEach(q => {
+        const questionDiv = document.createElement('div');
+        questionDiv.className = `question-card flex items-start gap-4 ${q.answered ? 'opacity-50' : ''}`;
+        questionDiv.innerHTML = `
+          <div class="flex-grow">
+            <p class="font-bold text-lg mb-1">${q.name || 'ناشناس'}</p>
+            <p class="text-sm text-gray-700">${q.text}</p>
+          </div>
+          <div class="flex-shrink-0 flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-500"><span class="text-green-500 text-lg">👍</span>${q.votes}</span>
+            <button onclick="markAnswered('${q.id}', ${q.answered})" class="bg-blue-500 text-white p-2 rounded-full">✔</button>
+            <button onclick="deleteQuestion('${q.id}')" class="bg-red-500 text-white p-2 rounded-full">🗑</button>
+          </div>
+        `;
+        elements.questionsList.appendChild(questionDiv);
+      });
+    }
+
+    function renderAudienceQuestions(questions) {
+      elements.audienceQuestionsList.innerHTML = '';
+      elements.noQuestionsAud.classList.toggle('hidden', questions.length !== 0);
+      questions.forEach(q => {
+        const questionDiv = document.createElement('div');
+        questionDiv.className = 'question-card flex items-start gap-4';
+        questionDiv.innerHTML = `
+          <div class="flex-grow">
+            <p class="font-bold text-lg mb-1">${q.name || 'ناشناس'}</p>
+            <p class="text-sm text-gray-700">${q.text}</p>
+          </div>
+          <div class="flex-shrink-0 flex flex-col items-center gap-1">
+            <button onclick="upvoteQuestion('${q.id}', ${q.votes})" class="vote-button bg-gray-200 text-gray-600 p-2 rounded-full">👍</button>
+            <span class="text-lg font-bold text-green-600">${q.votes}</span>
+          </div>
+        `;
+        elements.audienceQuestionsList.appendChild(questionDiv);
+      });
+    }
+
+    window.markAnswered = async (questionId, isAnswered) => {
+      const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
+      await updateDoc(questionRef, { answered: !isAnswered });
+    };
+    window.deleteQuestion = async (questionId) => {
+      const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
+      await updateDoc(questionRef, { deleted: true });
+    };
+    window.upvoteQuestion = async (questionId, currentVotes) => {
+      const questionRef = doc(currentEventRef, "questions", questionId);
+      await updateDoc(questionRef, { votes: currentVotes + 1 });
+    };
+
+    elements.createEventBtn.addEventListener('click', createEvent);
+    elements.joinEventBtn.addEventListener('click', () => {
+      const code = elements.eventCodeInput.value.trim();
+      if (code.length === 3) enterEvent(code);
+      else showModal("کد باید ۳ رقمی باشد.");
+    });
+    elements.addQuestionBtn.addEventListener('click', async () => {
+      const questionText = elements.questionInput.value.trim();
+      const askerName = elements.askerNameInput.value.trim() || 'ناشناس';
+      if (questionText === '') { showModal("لطفاً سوال خود را وارد کنید."); return; }
+      const questionsColRef = collection(currentEventRef, "questions");
+      await addDoc(questionsColRef, { text: questionText, name: askerName, votes: 0, answered: false, deleted: false, createdAt: Date.now() });
+      elements.questionInput.value = '';
+      elements.askerNameInput.value = '';
+    });
+
+    window.addEventListener('load', () => {
+      showPage('home-page');
+      initializeFirebase();
+    });
+  </script>
+</body>
+</html>
