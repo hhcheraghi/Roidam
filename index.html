@@ -1,4 +1,115 @@
-<script type="module">
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>سیستم پرسش و پاسخ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      direction: rtl;
+      background-color: #f3f4f6;
+    }
+    .question-card {
+      background-color: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease-in-out;
+    }
+    .question-card:hover {
+      transform: translateY(-2px);
+    }
+    .vote-button {
+      transition: transform 0.1s ease-in-out;
+    }
+    .vote-button:active {
+      transform: scale(0.95);
+    }
+    .modal {
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4 text-gray-800">
+
+  <!-- Main container -->
+  <div id="app" class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-6">
+    
+    <!-- Home Page -->
+    <div id="home-page" class="flex flex-col items-center justify-center">
+      <h1 class="text-3xl font-bold mb-6 text-center text-blue-600">سیستم پرسش و پاسخ</h1>
+      
+      <div class="w-full max-w-sm">
+        <div class="mb-6 p-4 bg-gray-100 rounded-lg shadow-inner text-center">
+          <h2 class="text-2xl font-semibold mb-3">ورود به رویداد</h2>
+          <input type="text" id="eventCodeInput" placeholder="کد رویداد خود را وارد کنید" class="w-full text-center p-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" maxlength="3">
+          <button id="joinEventBtn" class="mt-4 w-full bg-blue-500 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-600 transition-colors">ورود</button>
+        </div>
+        
+        <div class="p-4 bg-gray-100 rounded-lg shadow-inner text-center">
+          <h2 class="text-2xl font-semibold mb-3">ساخت رویداد</h2>
+          <button id="createEventBtn" class="w-full bg-green-500 text-white font-bold py-3 rounded-lg shadow-md hover:bg-green-600 transition-colors">ساخت رویداد</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Moderator Page -->
+    <div id="moderator-page" class="hidden flex-col items-center w-full">
+      <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6">
+        <h1 class="text-xl font-bold text-center" id="modEventName"></h1>
+        <div class="text-center mt-2">
+          <p class="text-sm font-semibold">کد حضار: <span id="audienceCode" class="font-bold text-lg"></span></p>
+          <p class="text-sm font-semibold">کد مدیر: <span id="moderatorCode" class="font-bold text-lg"></span></p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="modUserId" class="font-bold text-sm break-all"></span></p>
+        </div>
+      </div>
+      
+      <div id="questions-list" class="w-full">
+        <!-- Questions will be rendered here -->
+      </div>
+      <p id="noQuestionsMod" class="text-gray-500 mt-4 hidden">سؤالی هنوز پرسیده نشده است.</p>
+    </div>
+
+    <!-- Audience Page -->
+    <div id="audience-page" class="hidden flex-col items-center w-full">
+      <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6">
+        <h1 class="text-xl font-bold text-center" id="audEventName"></h1>
+        <div class="text-center mt-2">
+          <p class="text-sm font-semibold">برای پرسیدن سؤالات خود از این صفحه استفاده کنید.</p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="audUserId" class="font-bold text-sm break-all"></span></p>
+        </div>
+      </div>
+      
+      <div id="audience-questions-list" class="w-full mb-20">
+        <!-- Questions will be rendered here -->
+      </div>
+      <p id="noQuestionsAud" class="text-gray-500 mt-4 hidden">سؤالی هنوز پرسیده نشده است. اولین نفر باشید!</p>
+      
+      <!-- Ask Box -->
+      <div class="fixed bottom-0 right-0 left-0 bg-white p-4 shadow-2xl border-t border-gray-200 z-10">
+        <div class="flex flex-col md:flex-row gap-3 w-full max-w-2xl mx-auto">
+          <input type="text" id="askerNameInput" placeholder="نام (اختیاری)" class="flex-shrink-0 w-full md:w-auto p-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors">
+          <input type="text" id="questionInput" placeholder="سؤال خود را اینجا بنویسید..." class="flex-grow w-full p-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors">
+          <button id="addQuestionBtn" class="flex-shrink-0 w-full md:w-auto bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 transition-colors">ارسال</button>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+
+  <!-- Custom Alert/Modal -->
+  <div id="custom-modal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-lg p-6 w-full max-w-sm text-center shadow-xl">
+      <p id="modal-text" class="text-lg mb-4"></p>
+      <button id="modal-close-btn" class="bg-blue-500 text-white py-2 px-6 rounded-lg hover:bg-blue-600 transition-colors">بستن</button>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
   import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
@@ -96,3 +207,5 @@
 
   // ✅ بقیه کد همونطور که قبلاً نوشتی بدون تغییر می‌مونه
 </script>
+</body>
+</html>
