@@ -67,7 +67,9 @@
         </div>
       </div>
       
-      <div id="questions-list" class="w-full"></div>
+      <div id="questions-list" class="w-full">
+        <!-- Questions will be rendered here -->
+      </div>
       <p id="noQuestionsMod" class="text-gray-500 mt-4 hidden">سؤالی هنوز پرسیده نشده است.</p>
     </div>
 
@@ -81,7 +83,9 @@
         </div>
       </div>
       
-      <div id="audience-questions-list" class="w-full mb-20"></div>
+      <div id="audience-questions-list" class="w-full mb-20">
+        <!-- Questions will be rendered here -->
+      </div>
       <p id="noQuestionsAud" class="text-gray-500 mt-4 hidden">سؤالی هنوز پرسیده نشده است. اولین نفر باشید!</p>
       
       <!-- Ask Box -->
@@ -107,21 +111,24 @@
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, where, addDoc, updateDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 
-    // 🔥 Firebase Config (یادآوری: اینو خودت بهم دادی)
-    const firebaseConfig = {
-      apiKey: "AIzaSyD9-oaPJ_XN8nDyF8qOlDVHNACLpjSt2to",
-      authDomain: "roidam-backend.firebaseapp.com",
-      projectId: "roidam-backend",
-      storageBucket: "roidam-backend.firebasestorage.app",
-      messagingSenderId: "762602792858",
-      appId: "1:762602792858:web:f4a266f83d05d2275dfc23",
-      measurementId: "G-H9M29J7NJN"
-    };
+    // Set Firestore log level for debugging
+    setLogLevel('debug');
 
-    let app, db, auth, userId = null, isAuthReady = false;
+    // Global variables from the Canvas environment
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    let app;
+    let db;
+    let auth;
+    let userId = null;
+    let isAuthReady = false;
+
     let currentEventRef = null;
     let currentEventCode = null;
 
@@ -148,36 +155,65 @@
       modalText: document.getElementById('modal-text'),
       modalCloseBtn: document.getElementById('modal-close-btn')
     };
-
+    
+    // Function to show custom modal instead of alert
     function showModal(message) {
       elements.modalText.textContent = message;
       elements.modal.classList.remove('hidden');
     }
+    
+    // Close modal
     elements.modalCloseBtn.addEventListener('click', () => {
       elements.modal.classList.add('hidden');
     });
 
+    // Initialize Firebase and set up authentication
     async function initializeFirebase() {
+      if (Object.keys(firebaseConfig).length === 0) {
+        console.error("Firebase config is missing from the environment. The app cannot connect to the database.");
+        showModal("خطا در بارگذاری برنامه. تنظیمات اتصال به دیتابیس وجود ندارد.");
+        return;
+      }
+
       try {
         app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         auth = getAuth(app);
+        
         onAuthStateChanged(auth, async (user) => {
           if (user) {
             userId = user.uid;
             elements.modUserId.textContent = userId;
             elements.audUserId.textContent = userId;
+            console.log("User authenticated:", userId);
           } else {
-            await signInAnonymously(auth);
+            // Sign in anonymously if not authenticated
+            if (initialAuthToken) {
+              try {
+                await signInWithCustomToken(auth, initialAuthToken);
+              } catch (e) {
+                console.error("Error with custom token:", e);
+                showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
+              }
+            } else {
+              try {
+                await signInAnonymously(auth);
+              } catch (e) {
+                console.error("Error with anonymous sign-in:", e);
+                showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
+              }
+            }
           }
           isAuthReady = true;
         });
+
       } catch (error) {
         console.error("Error initializing Firebase:", error);
         showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
       }
     }
-
+    
+    // Function to navigate between pages
     function showPage(pageId) {
       elements.homePage.classList.add('hidden');
       elements.moderatorPage.classList.add('hidden');
@@ -185,52 +221,74 @@
       document.getElementById(pageId).classList.remove('hidden');
     }
 
+    // Generate a 3-digit code
     function generateCode() {
       return Math.floor(100 + Math.random() * 900).toString();
     }
-
+    
+    // Function to create a new event
     async function createEvent() {
+      // Ensure user is authenticated before creating an event
       if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
-      const eventName = "همایش جدید";
+
+      const eventName = "همایش جدید"; // Default name for the event
       const audienceCode = generateCode();
       const moderatorCode = generateCode();
+      
       try {
-        const eventsColRef = collection(db, "events");
+        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
+        
+        // Create documents for both audience and moderator codes
         await setDoc(doc(eventsColRef, audienceCode), {
-          audienceCode, moderatorCode, eventName, createdAt: Date.now()
+          audienceCode: audienceCode,
+          moderatorCode: moderatorCode,
+          eventName: eventName,
+          createdAt: Date.now()
         });
+
         await setDoc(doc(eventsColRef, moderatorCode), {
-          audienceCode, moderatorCode, eventName, createdAt: Date.now()
+          audienceCode: audienceCode,
+          moderatorCode: moderatorCode,
+          eventName: eventName,
+          createdAt: Date.now()
         });
+
+        // Redirect to moderator page
         enterEvent(moderatorCode);
+        
       } catch (error) {
         console.error("Error creating event: ", error);
         showModal("خطا در ساخت رویداد. لطفاً دوباره تلاش کنید.");
       }
     }
-
+    
+    // Function to enter an event
     async function enterEvent(code) {
       if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
-      const eventDocRef = doc(db, "events", code);
+      
+      const eventDocRef = doc(db, `/artifacts/${appId}/public/data/events/${code}`);
       const eventDoc = await getDoc(eventDocRef);
+      
       if (!eventDoc.exists()) {
         showModal("کد وارد شده معتبر نیست.");
         return;
       }
+      
       const eventData = eventDoc.data();
       currentEventCode = code;
+      
       if (eventData.moderatorCode === currentEventCode) {
         showPage('moderator-page');
         elements.modEventName.textContent = eventData.eventName;
         elements.audienceCode.textContent = eventData.audienceCode;
         elements.moderatorCode.textContent = eventData.moderatorCode;
-        currentEventRef = doc(db, "events", eventData.audienceCode);
+        currentEventRef = doc(db, `/artifacts/${appId}/public/data/events/${eventData.audienceCode}`);
         setupModeratorListener(currentEventRef);
       } else if (eventData.audienceCode === currentEventCode) {
         showPage('audience-page');
@@ -238,106 +296,213 @@
         currentEventRef = eventDocRef;
         setupAudienceListener(currentEventRef);
       } else {
-        showModal("کد وارد شده صحیح نیست.");
+        showModal("کد وارد شده صحیح نیست. لطفاً دوباره بررسی کنید.");
       }
     }
-
+    
+    // Listeners for Firestore updates (Real-time)
     function setupModeratorListener(eventRef) {
       const questionsColRef = collection(eventRef, "questions");
       const q = query(questionsColRef, where("deleted", "==", false));
+      
       onSnapshot(q, (snapshot) => {
         const questions = [];
-        snapshot.forEach(doc => questions.push({ id: doc.id, ...doc.data() }));
+        snapshot.forEach(doc => {
+          questions.push({ id: doc.id, ...doc.data() });
+        });
+        
         questions.sort((a, b) => b.votes - a.votes);
         renderModeratorQuestions(questions);
+      }, (error) => {
+        console.error("Error fetching moderator questions:", error);
       });
     }
-
+    
     function setupAudienceListener(eventRef) {
       const questionsColRef = collection(eventRef, "questions");
       const q = query(questionsColRef, where("answered", "==", false), where("deleted", "==", false));
+      
       onSnapshot(q, (snapshot) => {
         const questions = [];
-        snapshot.forEach(doc => questions.push({ id: doc.id, ...doc.data() }));
+        snapshot.forEach(doc => {
+          questions.push({ id: doc.id, ...doc.data() });
+        });
+        
         questions.sort((a, b) => b.votes - a.votes);
         renderAudienceQuestions(questions);
+      }, (error) => {
+        console.error("Error fetching audience questions:", error);
       });
     }
-
+    
+    // Rendering functions
     function renderModeratorQuestions(questions) {
       elements.questionsList.innerHTML = '';
-      elements.noQuestionsMod.classList.toggle('hidden', questions.length !== 0);
+      if (questions.length === 0) {
+        elements.noQuestionsMod.classList.remove('hidden');
+      } else {
+        elements.noQuestionsMod.classList.add('hidden');
+      }
+      
       questions.forEach(q => {
         const questionDiv = document.createElement('div');
         questionDiv.className = `question-card flex items-start gap-4 ${q.answered ? 'opacity-50' : ''}`;
+        
         questionDiv.innerHTML = `
           <div class="flex-grow">
             <p class="font-bold text-lg mb-1">${q.name || 'ناشناس'}</p>
             <p class="text-sm text-gray-700">${q.text}</p>
           </div>
           <div class="flex-shrink-0 flex items-center gap-2">
-            <span class="text-sm font-semibold text-gray-500"><span class="text-green-500 text-lg">👍</span>${q.votes}</span>
-            <button onclick="markAnswered('${q.id}', ${q.answered})" class="bg-blue-500 text-white p-2 rounded-full">✔</button>
-            <button onclick="deleteQuestion('${q.id}')" class="bg-red-500 text-white p-2 rounded-full">🗑</button>
+            <span class="text-sm font-semibold text-gray-500">
+              <span class="text-green-500 text-lg">👍</span>
+              ${q.votes}
+            </span>
+            <button onclick="markAnswered('${q.id}', ${q.answered})" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors" title="پاسخ داده شد">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <button onclick="deleteQuestion('${q.id}')" class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors" title="حذف">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M9 2a1 1 0 00-1 1v1H3a1 1 0 000 2v10a2 2 0 002 2h10a2 2 0 002-2V6a1 1 0 100-2h-5V3a1 1 0 00-1-1H9zM7 5h2a1 1 0 001-1V3h2v1a1 1 0 001 1h2v1H7V5z" clip-rule="evenodd" />
+              </svg>
+            </button>
           </div>
         `;
         elements.questionsList.appendChild(questionDiv);
       });
     }
-
+    
     function renderAudienceQuestions(questions) {
       elements.audienceQuestionsList.innerHTML = '';
-      elements.noQuestionsAud.classList.toggle('hidden', questions.length !== 0);
+      if (questions.length === 0) {
+        elements.noQuestionsAud.classList.remove('hidden');
+      } else {
+        elements.noQuestionsAud.classList.add('hidden');
+      }
+      
       questions.forEach(q => {
         const questionDiv = document.createElement('div');
         questionDiv.className = 'question-card flex items-start gap-4';
+        
         questionDiv.innerHTML = `
           <div class="flex-grow">
             <p class="font-bold text-lg mb-1">${q.name || 'ناشناس'}</p>
             <p class="text-sm text-gray-700">${q.text}</p>
           </div>
           <div class="flex-shrink-0 flex flex-col items-center gap-1">
-            <button onclick="upvoteQuestion('${q.id}', ${q.votes})" class="vote-button bg-gray-200 text-gray-600 p-2 rounded-full">👍</button>
+            <button onclick="upvoteQuestion('${q.id}', ${q.votes})" class="vote-button bg-gray-200 text-gray-600 p-2 rounded-full hover:bg-green-500 hover:text-white transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7.293 8.707a1 1 0 011.414-1.414L10 8.586l1.293-1.293a1 1 0 111.414 1.414L11.414 10l1.293 1.293a1 1 0 01-1.414 1.414L10 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L8.586 10 7.293 8.707z" clip-rule="evenodd" />
+              </svg>
+            </button>
             <span class="text-lg font-bold text-green-600">${q.votes}</span>
           </div>
         `;
         elements.audienceQuestionsList.appendChild(questionDiv);
       });
     }
-
+    
+    // Firestore Actions
     window.markAnswered = async (questionId, isAnswered) => {
-      const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
-      await updateDoc(questionRef, { answered: !isAnswered });
+      try {
+        if (!isAuthReady) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
+        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
+        await updateDoc(questionRef, {
+          answered: !isAnswered
+        });
+      } catch (e) {
+        console.error("Error updating document: ", e);
+      }
     };
+    
     window.deleteQuestion = async (questionId) => {
-      const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
-      await updateDoc(questionRef, { deleted: true });
+      try {
+        if (!isAuthReady) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
+        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
+        await updateDoc(questionRef, {
+          deleted: true
+        });
+      } catch (e) {
+        console.error("Error deleting document: ", e);
+      }
     };
+    
     window.upvoteQuestion = async (questionId, currentVotes) => {
-      const questionRef = doc(currentEventRef, "questions", questionId);
-      await updateDoc(questionRef, { votes: currentVotes + 1 });
+      try {
+        if (!isAuthReady) {
+          showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+          return;
+        }
+        const questionRef = doc(currentEventRef, "questions", questionId);
+        await updateDoc(questionRef, {
+          votes: currentVotes + 1
+        });
+      } catch (e) {
+        console.error("Error upvoting document: ", e);
+      }
     };
-
+    
+    // Event listeners
     elements.createEventBtn.addEventListener('click', createEvent);
+    
     elements.joinEventBtn.addEventListener('click', () => {
       const code = elements.eventCodeInput.value.trim();
-      if (code.length === 3) enterEvent(code);
-      else showModal("کد باید ۳ رقمی باشد.");
+      if (code.length === 3) {
+        enterEvent(code); 
+      } else {
+        showModal("کد باید ۳ رقمی باشد.");
+      }
     });
+    
     elements.addQuestionBtn.addEventListener('click', async () => {
       const questionText = elements.questionInput.value.trim();
       const askerName = elements.askerNameInput.value.trim() || 'ناشناس';
-      if (questionText === '') { showModal("لطفاً سوال خود را وارد کنید."); return; }
-      const questionsColRef = collection(currentEventRef, "questions");
-      await addDoc(questionsColRef, { text: questionText, name: askerName, votes: 0, answered: false, deleted: false, createdAt: Date.now() });
-      elements.questionInput.value = '';
-      elements.askerNameInput.value = '';
+      
+      if (questionText === '') {
+        showModal("لطفاً سوال خود را وارد کنید.");
+        return;
+      }
+      
+      if (!isAuthReady || !currentEventRef) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        return;
+      }
+      
+      try {
+        const questionsColRef = collection(currentEventRef, "questions");
+        await addDoc(questionsColRef, {
+          text: questionText,
+          name: askerName,
+          votes: 0,
+          answered: false,
+          deleted: false,
+          createdAt: Date.now()
+        });
+        
+        elements.questionInput.value = '';
+        elements.askerNameInput.value = '';
+        
+      } catch (e) {
+        console.error("Error adding question: ", e);
+        showModal("خطا در ارسال سوال. لطفاً دوباره تلاش کنید.");
+      }
     });
 
+    // Initial check for a joined event
     window.addEventListener('load', () => {
+      // Show the home page by default
       showPage('home-page');
       initializeFirebase();
     });
+
   </script>
 </body>
 </html>
