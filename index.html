@@ -23,9 +23,13 @@
       padding: 16px;
       margin-bottom: 12px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease-in-out;
+    }
+    .question-card:hover {
+      transform: translateY(-2px);
     }
     .vote-button {
-      transition: transform 0.2s ease-in-out;
+      transition: transform 0.1s ease-in-out;
     }
     .vote-button:active {
       transform: scale(0.95);
@@ -59,13 +63,13 @@
     </div>
 
     <!-- Moderator Page -->
-    <div id="moderator-page" class="hidden flex-col items-center">
+    <div id="moderator-page" class="hidden flex-col items-center w-full">
       <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6">
         <h1 class="text-xl font-bold text-center" id="modEventName"></h1>
         <div class="text-center mt-2">
           <p class="text-sm font-semibold">کد حضار: <span id="audienceCode" class="font-bold text-lg"></span></p>
           <p class="text-sm font-semibold">کد مدیر: <span id="moderatorCode" class="font-bold text-lg"></span></p>
-          <p class="text-sm font-semibold">شناسه کاربر: <span id="modUserId" class="font-bold text-sm"></span></p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="modUserId" class="font-bold text-sm break-all"></span></p>
         </div>
       </div>
       
@@ -76,12 +80,12 @@
     </div>
 
     <!-- Audience Page -->
-    <div id="audience-page" class="hidden flex-col items-center">
+    <div id="audience-page" class="hidden flex-col items-center w-full">
       <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6">
         <h1 class="text-xl font-bold text-center" id="audEventName"></h1>
         <div class="text-center mt-2">
           <p class="text-sm font-semibold">برای پرسیدن سؤالات خود از این صفحه استفاده کنید.</p>
-          <p class="text-sm font-semibold">شناسه کاربر: <span id="audUserId" class="font-bold text-sm"></span></p>
+          <p class="text-sm font-semibold">شناسه کاربر: <span id="audUserId" class="font-bold text-sm break-all"></span></p>
         </div>
       </div>
       
@@ -168,35 +172,44 @@
       elements.modal.classList.add('hidden');
     });
 
-    // Initialize Firebase
-    if (Object.keys(firebaseConfig).length) {
-      app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-      auth = getAuth(app);
-
-      // Handle user authentication
-      onAuthStateChanged(auth, async (user) => {
-        if (user) {
-          userId = user.uid;
-          elements.modUserId.textContent = userId;
-          elements.audUserId.textContent = userId;
-        } else {
-          // If no user is signed in, try to sign in with the custom token or anonymously
-          try {
-            if (initialAuthToken) {
-              await signInWithCustomToken(auth, initialAuthToken);
+    // Initialize Firebase and set up authentication
+    async function initializeFirebase() {
+      if (Object.keys(firebaseConfig).length) {
+        try {
+          app = initializeApp(firebaseConfig);
+          db = getFirestore(app);
+          auth = getAuth(app);
+          
+          onAuthStateChanged(auth, (user) => {
+            if (user) {
+              userId = user.uid;
+              elements.modUserId.textContent = userId;
+              elements.audUserId.textContent = userId;
+              console.log("User authenticated:", userId);
             } else {
-              await signInAnonymously(auth);
+              // Sign in anonymously if not authenticated
+              if (initialAuthToken) {
+                signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                  console.error("Error with custom token:", e);
+                  showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
+                });
+              } else {
+                signInAnonymously(auth).catch(e => {
+                  console.error("Error with anonymous sign-in:", e);
+                  showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
+                });
+              }
             }
-          } catch (error) {
-            console.error("Error signing in:", error);
-            showModal("خطا در ورود به برنامه. لطفاً دوباره امتحان کنید.");
-          }
+          });
+
+        } catch (error) {
+          console.error("Error initializing Firebase:", error);
+          showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
         }
-      });
-    } else {
-      console.error("Firebase config is missing. App will not function correctly.");
-      showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
+      } else {
+        console.error("Firebase config is missing. App will not function correctly.");
+        showModal("خطا در بارگذاری برنامه. لطفاً دوباره امتحان کنید.");
+      }
     }
     
     // Function to navigate between pages
@@ -214,13 +227,20 @@
     
     // Function to create a new event
     async function createEvent() {
-      const eventName = "همایش جدید"; // Default name for now
+      // Ensure user is authenticated before creating an event
+      if (!userId) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        return;
+      }
+
+      const eventName = "همایش جدید"; // Default name for the event
       const audienceCode = generateCode();
       const moderatorCode = generateCode();
       
       try {
         const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
         
+        // Create documents for both audience and moderator codes
         await setDoc(doc(eventsColRef, audienceCode), {
           audienceCode: audienceCode,
           moderatorCode: moderatorCode,
@@ -246,6 +266,11 @@
     
     // Function to enter an event
     async function enterEvent(code) {
+      if (!userId) {
+        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        return;
+      }
+      
       const eventDocRef = doc(db, `/artifacts/${appId}/public/data/events/${code}`);
       const eventDoc = await getDoc(eventDocRef);
       
@@ -385,7 +410,7 @@
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(currentEventRef, "questions", questionId);
+        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
         await updateDoc(questionRef, {
           answered: !isAnswered
         });
@@ -400,7 +425,7 @@
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(currentEventRef, "questions", questionId);
+        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
         await updateDoc(questionRef, {
           deleted: true
         });
@@ -474,6 +499,7 @@
     window.addEventListener('load', () => {
       // Show the home page by default
       showPage('home-page');
+      initializeFirebase();
     });
 
   </script>
