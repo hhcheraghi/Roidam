@@ -58,13 +58,14 @@
 
     <!-- Moderator Page -->
     <div id="moderator-page" class="hidden flex-col items-center w-full">
-      <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6">
+      <div class="bg-blue-500 text-white p-4 rounded-b-xl shadow-md w-full mb-6 flex flex-col items-center">
         <h1 class="text-xl font-bold text-center" id="modEventName"></h1>
         <div class="text-center mt-2">
           <p class="text-sm font-semibold">کد حضار: <span id="audienceCode" class="font-bold text-lg"></span></p>
           <p class="text-sm font-semibold">کد مدیر: <span id="moderatorCode" class="font-bold text-lg"></span></p>
           <p class="text-sm font-semibold">شناسه کاربر: <span id="modUserId" class="font-bold text-sm break-all"></span></p>
         </div>
+        <button id="endEventBtn" class="mt-4 px-4 py-2 bg-red-600 rounded-full font-bold shadow-md hover:bg-red-700 transition-colors">پایان رویداد</button>
       </div>
       
       <div id="questions-list" class="w-full">
@@ -144,6 +145,7 @@
     let currentEventRef = null;
     let currentEventCode = null;
     let eventType = null;
+    let eventData = null;
 
     const elements = {
       homePage: document.getElementById('home-page'),
@@ -157,6 +159,7 @@
       audUserId: document.getElementById('audUserId'),
       audienceCode: document.getElementById('audienceCode'),
       moderatorCode: document.getElementById('moderatorCode'),
+      endEventBtn: document.getElementById('endEventBtn'),
       questionsList: document.getElementById('questions-list'),
       audienceQuestionsList: document.getElementById('audience-questions-list'),
       askerNameInput: document.getElementById('askerNameInput'),
@@ -282,37 +285,46 @@
     // Function to enter an event
     async function enterEvent(code, type) {
       if (!isAuthReady) {
-        showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
+        setTimeout(() => enterEvent(code, type), 500);
         return;
       }
       
-      const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
-      const eventDocRef = doc(eventsColRef, code);
-      const eventDoc = await getDoc(eventDocRef);
+      try {
+        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
+        const eventDocRef = doc(eventsColRef, code);
+        const eventDoc = await getDoc(eventDocRef);
       
-      if (!eventDoc.exists()) {
-        showModal("کد وارد شده معتبر نیست.");
-        return;
-      }
-      
-      const eventData = eventDoc.data();
-      currentEventCode = code;
-      eventType = type;
-      
-      if (type === 'm' && eventData.moderatorCode === currentEventCode) {
-        showPage('moderator-page');
-        elements.modEventName.textContent = eventData.eventName;
-        elements.audienceCode.textContent = eventData.audienceCode;
-        elements.moderatorCode.textContent = eventData.moderatorCode;
-        currentEventRef = doc(eventsColRef, eventData.audienceCode);
-        setupModeratorListener(currentEventRef);
-      } else if (type === 'h' && eventData.audienceCode === currentEventCode) {
-        showPage('audience-page');
-        elements.audEventName.textContent = eventData.eventName;
-        currentEventRef = eventDocRef;
-        setupAudienceListener(currentEventRef);
-      } else {
-        showModal("کد وارد شده صحیح نیست. لطفاً دوباره بررسی کنید.");
+        if (!eventDoc.exists()) {
+          showModal("کد وارد شده معتبر نیست.");
+          window.history.pushState({}, '', '/');
+          showPage('home-page');
+          return;
+        }
+        
+        eventData = eventDoc.data();
+        currentEventCode = code;
+        eventType = type;
+        
+        if (type === 'm' && eventData.moderatorCode === currentEventCode) {
+          showPage('moderator-page');
+          elements.modEventName.textContent = eventData.eventName;
+          elements.audienceCode.textContent = eventData.audienceCode;
+          elements.moderatorCode.textContent = eventData.moderatorCode;
+          currentEventRef = doc(eventsColRef, eventData.audienceCode);
+          setupModeratorListener(currentEventRef);
+        } else if (type === 'h' && eventData.audienceCode === currentEventCode) {
+          showPage('audience-page');
+          elements.audEventName.textContent = eventData.eventName;
+          currentEventRef = eventDocRef;
+          setupAudienceListener(currentEventRef);
+        } else {
+          showModal("کد وارد شده صحیح نیست. لطفاً دوباره بررسی کنید.");
+          window.history.pushState({}, '', '/');
+          showPage('home-page');
+        }
+      } catch (error) {
+        console.error("Error entering event: ", error);
+        showModal("خطا در ورود به رویداد. لطفاً دوباره تلاش کنید.");
         window.history.pushState({}, '', '/');
         showPage('home-page');
       }
@@ -484,9 +496,41 @@
         showModal("خطا در رأی دادن به سوال.");
       }
     };
-    
+
+    window.endEvent = async () => {
+      if (!isAuthReady || !eventData) {
+        showModal("خطا در پایان دادن به رویداد. رویداد یافت نشد.");
+        return;
+      }
+
+      try {
+        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
+        const audienceDocRef = doc(eventsColRef, eventData.audienceCode);
+        const moderatorDocRef = doc(eventsColRef, eventData.moderatorCode);
+
+        // Delete sub-collection (questions) first
+        const questionsSnapshot = await getDocs(collection(audienceDocRef, "questions"));
+        questionsSnapshot.forEach(async (q) => {
+          await deleteDoc(doc(audienceDocRef, "questions", q.id));
+        });
+
+        // Delete event documents
+        await deleteDoc(audienceDocRef);
+        await deleteDoc(moderatorDocRef);
+
+        showModal("رویداد با موفقیت پایان یافت و حذف شد.");
+        window.history.pushState({}, '', '/');
+        handleRouting();
+
+      } catch (e) {
+        console.error("Error ending event: ", e);
+        showModal("خطا در پایان دادن به رویداد.");
+      }
+    };
+
     // Event listeners
     elements.createEventBtn.addEventListener('click', createEvent);
+    elements.endEventBtn.addEventListener('click', window.endEvent);
     
     elements.joinEventBtn.addEventListener('click', () => {
       const code = elements.eventCodeInput.value.trim();
