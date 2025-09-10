@@ -245,7 +245,7 @@
       const moderatorCode = generateCode();
       
       try {
-        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
+        const eventsColRef = collection(db, "events");
         
         // Create documents for both audience and moderator codes
         await setDoc(doc(eventsColRef, audienceCode), {
@@ -278,7 +278,7 @@
         return;
       }
       
-      const eventDocRef = doc(db, `/artifacts/${appId}/public/data/events/${code}`);
+      const eventDocRef = doc(db, "events", code);
       const eventDoc = await getDoc(eventDocRef);
       
       if (!eventDoc.exists()) {
@@ -294,7 +294,7 @@
         elements.modEventName.textContent = eventData.eventName;
         elements.audienceCode.textContent = eventData.audienceCode;
         elements.moderatorCode.textContent = eventData.moderatorCode;
-        currentEventRef = doc(db, `/artifacts/${appId}/public/data/events/${eventData.audienceCode}`);
+        currentEventRef = doc(db, "events", eventData.audienceCode);
         setupModeratorListener(currentEventRef);
       } else if (eventData.audienceCode === currentEventCode) {
         showPage('audience-page');
@@ -417,7 +417,8 @@
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
+        const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
+
         await updateDoc(questionRef, {
           answered: !isAnswered
         });
@@ -432,7 +433,8 @@
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(db, `/artifacts/${appId}/public/data/events/${currentEventCode}/questions/${questionId}`);
+        const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
+
         await updateDoc(questionRef, {
           deleted: true
         });
