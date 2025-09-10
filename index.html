@@ -31,6 +31,18 @@
     .modal {
       background-color: rgba(0, 0, 0, 0.5);
     }
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen p-4 text-gray-800">
@@ -38,8 +50,14 @@
   <!-- Main container -->
   <div id="app" class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-6">
     
+    <!-- Loading State -->
+    <div id="loading-state" class="flex flex-col items-center justify-center hidden">
+      <div class="loader mb-4"></div>
+      <p class="text-xl font-semibold text-gray-600">در حال اتصال به سرور...</p>
+    </div>
+
     <!-- Home Page -->
-    <div id="home-page" class="flex flex-col items-center justify-center">
+    <div id="home-page" class="flex flex-col items-center justify-center hidden">
       <h1 class="text-3xl font-bold mb-6 text-center text-blue-600">سیستم پرسش و پاسخ</h1>
       
       <div class="w-full max-w-sm">
@@ -151,6 +169,7 @@
       homePage: document.getElementById('home-page'),
       moderatorPage: document.getElementById('moderator-page'),
       audiencePage: document.getElementById('audience-page'),
+      loadingState: document.getElementById('loading-state'),
       eventCodeInput: document.getElementById('eventCodeInput'),
       joinEventBtn: document.getElementById('joinEventBtn'),
       createEventBtn: document.getElementById('createEventBtn'),
@@ -185,6 +204,7 @@
 
     // Initialize Firebase and set up authentication
     async function initializeFirebase() {
+      elements.loadingState.classList.remove('hidden');
       if (Object.keys(firebaseConfig).length === 0) {
         console.error("Firebase config is missing from the environment. The app cannot connect to the database.");
         showModal("خطا در بارگذاری برنامه. تنظیمات اتصال به دیتابیس وجود ندارد.");
@@ -203,7 +223,6 @@
             elements.audUserId.textContent = userId;
             console.log("User authenticated:", userId);
           } else {
-            // Sign in anonymously if not authenticated
             if (initialAuthToken) {
               try {
                 await signInWithCustomToken(auth, initialAuthToken);
@@ -221,6 +240,8 @@
             }
           }
           isAuthReady = true;
+          // Hide loading screen after auth state is ready
+          elements.loadingState.classList.add('hidden');
           handleRouting();
         });
 
@@ -257,7 +278,6 @@
       try {
         const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
         
-        // Create documents for both audience and moderator codes
         await setDoc(doc(eventsColRef, audienceCode), {
           audienceCode: audienceCode,
           moderatorCode: moderatorCode,
@@ -272,7 +292,6 @@
           createdAt: Date.now()
         });
 
-        // Update URL and navigate to moderator page
         window.history.pushState({}, '', `/events/m/${moderatorCode}`);
         handleRouting();
         
@@ -284,11 +303,6 @@
     
     // Function to enter an event
     async function enterEvent(code, type) {
-      if (!isAuthReady) {
-        setTimeout(() => enterEvent(code, type), 500);
-        return;
-      }
-      
       try {
         const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
         const eventDocRef = doc(eventsColRef, code);
@@ -332,6 +346,11 @@
     
     // Router logic based on URL
     function handleRouting() {
+      if (!isAuthReady) {
+        // If auth is not ready yet, wait for it.
+        return;
+      }
+
       const path = window.location.pathname;
       const parts = path.split('/');
       
@@ -508,13 +527,11 @@
         const audienceDocRef = doc(eventsColRef, eventData.audienceCode);
         const moderatorDocRef = doc(eventsColRef, eventData.moderatorCode);
 
-        // Delete sub-collection (questions) first
         const questionsSnapshot = await getDocs(collection(audienceDocRef, "questions"));
         questionsSnapshot.forEach(async (q) => {
           await deleteDoc(doc(audienceDocRef, "questions", q.id));
         });
 
-        // Delete event documents
         await deleteDoc(audienceDocRef);
         await deleteDoc(moderatorDocRef);
 
@@ -535,7 +552,6 @@
     elements.joinEventBtn.addEventListener('click', () => {
       const code = elements.eventCodeInput.value.trim();
       if (code.length === 3) {
-        // Update URL and navigate to audience page
         window.history.pushState({}, '', `/events/h/${code}`);
         handleRouting();
       } else {
