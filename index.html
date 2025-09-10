@@ -159,6 +159,7 @@
     let auth;
     let userId = null;
     let isAuthReady = false;
+    let isFirebaseInitialized = false; // اضافه شده برای ردیابی وضعیت اتصال
 
     let currentEventRef = null;
     let currentEventCode = null;
@@ -240,6 +241,7 @@
             }
           }
           isAuthReady = true;
+          isFirebaseInitialized = true; // اضافه شده
           // Hide loading screen after auth state is ready
           elements.loadingState.classList.add('hidden');
           handleRouting();
@@ -266,7 +268,7 @@
     
     // Function to create a new event
     async function createEvent() {
-      if (!isAuthReady) {
+      if (!isAuthReady || !isFirebaseInitialized) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
@@ -346,7 +348,7 @@
     
     // Router logic based on URL
     function handleRouting() {
-      if (!isAuthReady) {
+      if (!isAuthReady || !isFirebaseInitialized) {
         // If auth is not ready yet, wait for it.
         return;
       }
@@ -470,7 +472,7 @@
     // Firestore Actions
     window.markAnswered = async (questionId, isAnswered) => {
       try {
-        if (!isAuthReady || !currentEventRef) {
+        if (!isAuthReady || !currentEventRef || !isFirebaseInitialized) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -486,7 +488,7 @@
     
     window.deleteQuestion = async (questionId) => {
       try {
-        if (!isAuthReady || !currentEventRef) {
+        if (!isAuthReady || !currentEventRef || !isFirebaseInitialized) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -502,7 +504,7 @@
     
     window.upvoteQuestion = async (questionId, currentVotes) => {
       try {
-        if (!isAuthReady || !currentEventRef) {
+        if (!isAuthReady || !currentEventRef || !isFirebaseInitialized) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -517,8 +519,8 @@
     };
 
     window.endEvent = async () => {
-      if (!isAuthReady || !eventData) {
-        showModal("خطا در پایان دادن به رویداد. رویداد یافت نشد.");
+      if (!isAuthReady || !eventData || !isFirebaseInitialized) {
+        showModal("لطفاً منتظر بمانید تا اتصال کامل برقرار شود.");
         return;
       }
 
@@ -527,11 +529,18 @@
         const audienceDocRef = doc(eventsColRef, eventData.audienceCode);
         const moderatorDocRef = doc(eventsColRef, eventData.moderatorCode);
 
+        // حذف تمام سؤالات مربوط به رویداد
         const questionsSnapshot = await getDocs(collection(audienceDocRef, "questions"));
-        questionsSnapshot.forEach(async (q) => {
-          await deleteDoc(doc(audienceDocRef, "questions", q.id));
+        const deletePromises = [];
+        
+        questionsSnapshot.forEach((q) => {
+          deletePromises.push(deleteDoc(doc(audienceDocRef, "questions", q.id)));
         });
-
+        
+        // منتظر ماندن برای حذف تمام سؤالات
+        await Promise.all(deletePromises);
+        
+        // حذف خود رویداد
         await deleteDoc(audienceDocRef);
         await deleteDoc(moderatorDocRef);
 
@@ -550,6 +559,11 @@
     elements.endEventBtn.addEventListener('click', window.endEvent);
     
     elements.joinEventBtn.addEventListener('click', () => {
+      if (!isFirebaseInitialized) {
+        showModal("لطفاً منتظر بمانید تا اتصال به سرور برقرار شود.");
+        return;
+      }
+      
       const code = elements.eventCodeInput.value.trim();
       if (code.length === 3) {
         window.history.pushState({}, '', `/events/h/${code}`);
@@ -568,7 +582,7 @@
         return;
       }
       
-      if (!isAuthReady || !currentEventRef) {
+      if (!isAuthReady || !currentEventRef || !isFirebaseInitialized) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
