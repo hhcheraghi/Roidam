@@ -118,25 +118,32 @@
     // Set Firestore log level for debugging
     setLogLevel('debug');
 
-    const appId = 'roidam-app';
-    const firebaseConfig = {
-      apiKey: "AIzaSyD9-oaPJ_XN8nDyF8qOlDVHNACLpjSt2to",
-      authDomain: "roidam-backend.firebaseapp.com",
-      projectId: "roidam-backend",
-      storageBucket: "roidam-backend.appspot.com",
-      messagingSenderId: "762602792858",
-      appId: "1:762602792858:web:f4a266f83d05d2275dfc23",
-      measurementId: "G-H9M29J7NJN"
-    };
+    // Global variables from the Canvas environment
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    
+    // Fallback for demonstration purposes if canvas variables are not present
+    if (Object.keys(firebaseConfig).length === 0) {
+      console.warn("Using fallback Firebase config. This should be provided by the environment.");
+      firebaseConfig.apiKey = "AIzaSyD9-oaPJ_XN8nDyF8qOlDVHNACLpjSt2to";
+      firebaseConfig.authDomain = "roidam-backend.firebaseapp.com";
+      firebaseConfig.projectId = "roidam-backend";
+      firebaseConfig.storageBucket = "roidam-backend.appspot.com";
+      firebaseConfig.messagingSenderId = "762602792858";
+      firebaseConfig.appId = "1:762602792858:web:f4a266f83d05d2275dfc23";
+      firebaseConfig.measurementId = "G-H9M29J7NJN";
+    }
 
     let app;
     let db;
     let auth;
     let userId = null;
     let isAuthReady = false;
-    let initialAuthToken = null;
+
     let currentEventRef = null;
     let currentEventCode = null;
+    let eventType = null;
 
     const elements = {
       homePage: document.getElementById('home-page'),
@@ -211,6 +218,7 @@
             }
           }
           isAuthReady = true;
+          handleRouting();
         });
 
       } catch (error) {
@@ -234,7 +242,6 @@
     
     // Function to create a new event
     async function createEvent() {
-      // Ensure user is authenticated before creating an event
       if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
@@ -245,7 +252,7 @@
       const moderatorCode = generateCode();
       
       try {
-        const eventsColRef = collection(db, "events");
+        const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
         
         // Create documents for both audience and moderator codes
         await setDoc(doc(eventsColRef, audienceCode), {
@@ -262,8 +269,9 @@
           createdAt: Date.now()
         });
 
-        // Redirect to moderator page
-        enterEvent(moderatorCode);
+        // Update URL and navigate to moderator page
+        window.history.pushState({}, '', `/events/m/${moderatorCode}`);
+        handleRouting();
         
       } catch (error) {
         console.error("Error creating event: ", error);
@@ -272,13 +280,14 @@
     }
     
     // Function to enter an event
-    async function enterEvent(code) {
+    async function enterEvent(code, type) {
       if (!isAuthReady) {
         showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
         return;
       }
       
-      const eventDocRef = doc(db, "events", code);
+      const eventsColRef = collection(db, `/artifacts/${appId}/public/data/events`);
+      const eventDocRef = doc(eventsColRef, code);
       const eventDoc = await getDoc(eventDocRef);
       
       if (!eventDoc.exists()) {
@@ -288,24 +297,41 @@
       
       const eventData = eventDoc.data();
       currentEventCode = code;
+      eventType = type;
       
-      if (eventData.moderatorCode === currentEventCode) {
+      if (type === 'm' && eventData.moderatorCode === currentEventCode) {
         showPage('moderator-page');
         elements.modEventName.textContent = eventData.eventName;
         elements.audienceCode.textContent = eventData.audienceCode;
         elements.moderatorCode.textContent = eventData.moderatorCode;
-        currentEventRef = doc(db, "events", eventData.audienceCode);
+        currentEventRef = doc(eventsColRef, eventData.audienceCode);
         setupModeratorListener(currentEventRef);
-      } else if (eventData.audienceCode === currentEventCode) {
+      } else if (type === 'h' && eventData.audienceCode === currentEventCode) {
         showPage('audience-page');
         elements.audEventName.textContent = eventData.eventName;
         currentEventRef = eventDocRef;
         setupAudienceListener(currentEventRef);
       } else {
         showModal("کد وارد شده صحیح نیست. لطفاً دوباره بررسی کنید.");
+        window.history.pushState({}, '', '/');
+        showPage('home-page');
       }
     }
     
+    // Router logic based on URL
+    function handleRouting() {
+      const path = window.location.pathname;
+      const parts = path.split('/');
+      
+      if (parts.length === 4 && parts[1] === 'events') {
+        const type = parts[2];
+        const code = parts[3];
+        enterEvent(code, type);
+      } else {
+        showPage('home-page');
+      }
+    }
+
     // Listeners for Firestore updates (Real-time)
     function setupModeratorListener(eventRef) {
       const questionsColRef = collection(eventRef, "questions");
@@ -413,39 +439,39 @@
     // Firestore Actions
     window.markAnswered = async (questionId, isAnswered) => {
       try {
-        if (!isAuthReady) {
+        if (!isAuthReady || !currentEventRef) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
-
+        const questionRef = doc(currentEventRef, "questions", questionId);
         await updateDoc(questionRef, {
           answered: !isAnswered
         });
       } catch (e) {
         console.error("Error updating document: ", e);
+        showModal("خطا در به‌روزرسانی سوال.");
       }
     };
     
     window.deleteQuestion = async (questionId) => {
       try {
-        if (!isAuthReady) {
+        if (!isAuthReady || !currentEventRef) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
-        const questionRef = doc(db, "events", currentEventCode, "questions", questionId);
-
+        const questionRef = doc(currentEventRef, "questions", questionId);
         await updateDoc(questionRef, {
           deleted: true
         });
       } catch (e) {
         console.error("Error deleting document: ", e);
+        showModal("خطا در حذف سوال.");
       }
     };
     
     window.upvoteQuestion = async (questionId, currentVotes) => {
       try {
-        if (!isAuthReady) {
+        if (!isAuthReady || !currentEventRef) {
           showModal("لطفاً منتظر بمانید تا اتصال برقرار شود.");
           return;
         }
@@ -455,6 +481,7 @@
         });
       } catch (e) {
         console.error("Error upvoting document: ", e);
+        showModal("خطا در رأی دادن به سوال.");
       }
     };
     
@@ -464,7 +491,9 @@
     elements.joinEventBtn.addEventListener('click', () => {
       const code = elements.eventCodeInput.value.trim();
       if (code.length === 3) {
-        enterEvent(code); 
+        // Update URL and navigate to audience page
+        window.history.pushState({}, '', `/events/h/${code}`);
+        handleRouting();
       } else {
         showModal("کد باید ۳ رقمی باشد.");
       }
@@ -504,10 +533,11 @@
       }
     });
 
+    // Listen for back/forward button clicks in the browser
+    window.addEventListener('popstate', handleRouting);
+    
     // Initial check for a joined event
     window.addEventListener('load', () => {
-      // Show the home page by default
-      showPage('home-page');
       initializeFirebase();
     });
 
